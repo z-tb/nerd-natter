@@ -1,0 +1,286 @@
+#!/usr/bin/env bash
+# nn-ctl: run the whole push-to-talk service (dictation server + key watcher).
+#
+# Used by the Cinnamon applet, the Makefile, install.sh and by hand. Settings come from
+#   1. the environment (highest), 2. ~/.config/nerd-natter/config.env, 3. defaults.
+# config.env is plain KEY=VALUE lines (no quotes). The applet's Configure dialog edits it.
+#
+# Usage: nn-ctl <command> [--build]
+#   start        dictation server + key watcher
+#   stop         stop both
+#   restart      stop, then start
+#   container    only the dictation server (docker or venv, see RUN_MODE)
+#   watcher      only the key watcher (background)      watch   same, in the foreground
+#   unwatch      stop only the key watcher              capture-key  print the next key's keycode
+#   build        (re)build the docker image             setup-venv   create the python venv
+#   logs         follow the server log (logs watcher: the key watcher's)
+#   status       what is running        test   ping the server       check  verify the setup
+#   config       show every setting in effect           get KEY      print one setting
+#   set KEY VAL  save a setting to config.env           version      print the release number
+# --build forces a docker image rebuild on start/container/restart.
+# NN_DRYRUN=1 prints the commands instead of running them.
+
+set -u
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+CONFIG_FILE="${NN_CONFIG_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/nerd-natter/config.env}"
+# Settings from before the rename (nerd-dictation-ptt, PTT_* names) are carried over once
+OLD_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/nerd-dictation-ptt"
+if [ ! -e "$CONFIG_FILE" ] && [ -f "$OLD_CONF/config.env" ]; then
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    sed -e 's/^PTT_/NN_/' -e 's/^ND_CONFIG=/NN_CONFIG=/' -e 's/nd-config\.py/nn-config.py/g' \
+        -e 's/nerd-dictation-ptt/nerd-natter/g' "$OLD_CONF/config.env" > "$CONFIG_FILE"
+    [ -f "$OLD_CONF/project-dir" ] && cp "$OLD_CONF/project-dir" "$(dirname "$CONFIG_FILE")/project-dir"
+fi
+OLD_VENV="$HOME/.local/share/nerd-dictation-ptt"
+if [ -d "$OLD_VENV/venv" ] && [ ! -e "$HOME/.local/share/nerd-natter" ]; then
+    mv "$OLD_VENV" "$HOME/.local/share/nerd-natter" 2>/dev/null
+fi
+WATCH_LOG=/tmp/nn_watch.log
+STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/nerd-natter"   # venv mode: pid file and log
+
+declare -A CFG=(
+    [RUN_MODE]=docker              # docker, or venv (a python virtual environment)
+    [PROJECT_DIR]="$HERE"          # holds nn_server.py, nn_watch.py, nn-config.py, Dockerfile
+    [NERD_DIR]=                    # folder with the nerd-dictation script; default $PROJECT_DIR/nerd-dictation
+    [VOSK_DIR]="$HOME/.local/share/vosk-models"   # where models go by default (the installer uses it too)
+    [MODEL_DIR]=                   # the model folder; default $VOSK_DIR/vosk-model-en-us-0.22
+    [NN_CONFIG]=                   # typing rules file; default $PROJECT_DIR/nn-config.py
+    [VENV_DIR]="$HOME/.local/share/nerd-natter/venv"
+    [NN_ARGS]="--numbers-as-digits --config /home/appuser/nn-config.py"
+    [NN_LIVE]=0                   # 1 = type partial results while speaking (flickers)
+    [NN_KEYCODES]=135             # 135 = Menu key
+    [BEEP_LEAD]=0.35               # seconds the start beep gets before the mic opens (0 = none)
+    [RELEASE_DELAY]=0.3            # seconds the mic stays on after you let go of the key
+    [WATCH_ARGS]=
+    [CONTAINER_NAME]=nerd-natter
+    [IMAGE_NAME]=nerd-natter:local
+)
+
+if [ -r "$CONFIG_FILE" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in ''|'#'*) continue ;; esac
+        key="${line%%=*}"; val="${line#*=}"
+        key="${key//[[:space:]]/}"
+        [ -n "$val" ] && [ -n "${CFG[$key]+x}" ] && CFG[$key]="$val"
+    done < "$CONFIG_FILE"
+fi
+for key in "${!CFG[@]}"; do
+    [ -n "${!key:-}" ] && CFG[$key]="${!key}"
+done
+[ -z "${CFG[NERD_DIR]}" ]  && CFG[NERD_DIR]="${CFG[PROJECT_DIR]}/nerd-dictation"
+[ -z "${CFG[MODEL_DIR]}" ] && CFG[MODEL_DIR]="${CFG[VOSK_DIR]}/vosk-model-en-us-0.22"
+[ -z "${CFG[NN_CONFIG]}" ] && CFG[NN_CONFIG]="${CFG[PROJECT_DIR]}/nn-config.py"
+
+P="${CFG[PROJECT_DIR]}"
+MODE="${CFG[RUN_MODE]}"
+die() { echo "nn-ctl: $*" >&2; exit 1; }
+exec 3>&1   # dry run output must survive the >/dev/null on some calls
+run() { if [ -n "${NN_DRYRUN:-}" ]; then printf '%q ' "$@" >&3; echo >&3; else "$@"; fi; }
+
+case "$MODE" in docker|venv) ;; *) die "RUN_MODE must be docker or venv, not '$MODE'" ;; esac
+
+check() {
+    [ -d "${CFG[MODEL_DIR]}/conf" ] || die "speech model not found at ${CFG[MODEL_DIR]} (is the drive connected? set the model folder in the applet settings)"
+    [ -f "$P/nn_server.py" ] || die "nn_server.py not found in $P (check the project folder)"
+    [ -f "$P/nn_watch.py" ]  || die "nn_watch.py not found in $P"
+    [ -f "${CFG[NERD_DIR]}/nerd-dictation" ] || die "the nerd-dictation script was not found at ${CFG[NERD_DIR]}/nerd-dictation (set the nerd-dictation folder in the applet settings)"
+    [ -f "${CFG[NN_CONFIG]}" ] || die "typing rules file not found: ${CFG[NN_CONFIG]}"
+    [ -n "${NN_DRYRUN:-}" ] && return 0
+    if [ "$MODE" = docker ]; then
+        command -v docker >/dev/null || die "docker is not installed (or switch to the python venv option)"
+    else
+        [ -x "${CFG[VENV_DIR]}/bin/python" ] || die "no python environment at ${CFG[VENV_DIR]} (run: nn-ctl setup-venv)"
+        "${CFG[VENV_DIR]}/bin/python" -c 'import vosk' 2>/dev/null || die "vosk is missing from ${CFG[VENV_DIR]} (run: nn-ctl setup-venv)"
+    fi
+}
+
+setup_venv() {
+    command -v python3 >/dev/null || die "python3 is not installed"
+    python3 -c 'import venv, ensurepip' 2>/dev/null || die "python3-venv is missing (sudo apt install python3-venv)"
+    run mkdir -p "$(dirname "${CFG[VENV_DIR]}")"
+    run python3 -m venv "${CFG[VENV_DIR]}" || die "could not create ${CFG[VENV_DIR]}"
+    run "${CFG[VENV_DIR]}/bin/pip" install --quiet --upgrade pip vosk || die "could not install vosk"
+}
+
+build() {
+    [ "$MODE" = docker ] || { echo "nn-ctl: nothing to build in venv mode"; return 0; }
+    [ -f "$P/Dockerfile" ] || die "no Dockerfile in $P"
+    run docker build --build-arg USER_UID="$(id -u)" --build-arg USER_GID="$(id -g)" \
+        -t "${CFG[IMAGE_NAME]}" "$P" || die "image build failed"
+}
+
+container_docker() {
+    if [ "${1:-}" = "--build" ] || ! docker image inspect "${CFG[IMAGE_NAME]}" >/dev/null 2>&1; then
+        build
+    fi
+    run docker rm -f "${CFG[CONTAINER_NAME]}" >/dev/null 2>&1
+    local uid; uid="$(id -u)"
+    local sock="${XDG_RUNTIME_DIR:-/run/user/$uid}/pulse/native"
+    local cookie="$HOME/.config/pulse/cookie"
+    local rules_dir="${XDG_CONFIG_HOME:-$HOME/.config}/nerd-natter"   # holds user-rules.py
+    mkdir -p "$rules_dir" "$STATE_DIR"; chmod 700 "$STATE_DIR"
+    rm -f "$STATE_DIR/mode"   # a mode chosen by voice does not outlive the service
+    local args=(-d --init --name "${CFG[CONTAINER_NAME]}"
+        -e "DISPLAY=${DISPLAY:-:0}"
+        -v /tmp/.X11-unix:/tmp/.X11-unix
+        -v "${CFG[MODEL_DIR]}:/home/appuser/.config/nerd-dictation/model:ro"
+        -v "${CFG[NERD_DIR]}:/home/appuser/nerd-dictation:ro"
+        -v "$rules_dir:/home/appuser/.config/nerd-natter:ro"
+        -v "$STATE_DIR:/run/nn" -e NN_STATE_DIR=/run/nn
+        -v "$P/nn_server.py:/home/appuser/nn_server.py:ro"
+        -v "${CFG[NN_CONFIG]}:/home/appuser/nn-config.py:ro"
+        -e "ND_BEGIN_ARGS=${CFG[NN_ARGS]}"
+        -e "NN_LIVE=${CFG[NN_LIVE]}"
+        -e "NN_BEEP_LEAD=${CFG[BEEP_LEAD]}"
+        --network none -e NN_SOCKET=/run/nn/control.sock
+        -v "$sock:/tmp/pulse.sock" -e PULSE_SERVER=unix:/tmp/pulse.sock)
+    [ -f "$cookie" ] && args+=(-v "$cookie:/home/appuser/.config/pulse/cookie:ro")
+    run docker run "${args[@]}" "${CFG[IMAGE_NAME]}" python3 /home/appuser/nn_server.py >/dev/null \
+        || die "could not start the container (see: docker logs ${CFG[CONTAINER_NAME]})"
+}
+
+server_pid() {   # prints the pid of the running venv-mode server, if any
+    local pid; pid="$(cat "$STATE_DIR/server.pid" 2>/dev/null)" || return 1
+    [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ] && tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q 'nn_server.py' && echo "$pid"
+}
+
+container_venv() {
+    stop_server
+    mkdir -p "$STATE_DIR"; chmod 700 "$STATE_DIR"
+    rm -f "$STATE_DIR/mode"
+    # the typing rules file is mounted at a fixed path in docker; here it is the real one
+    local rules; rules="${CFG[NN_ARGS]//\/home\/appuser\/nn-config.py/${CFG[NN_CONFIG]}}"
+    local begin; begin="--vosk-model-dir $(printf '%q' "${CFG[MODEL_DIR]}") $rules"
+    if [ -n "${NN_DRYRUN:-}" ]; then
+        echo "ND_SCRIPT=${CFG[NERD_DIR]}/nerd-dictation ND_BEGIN_ARGS='$begin' NN_SOCKET=$STATE_DIR/control.sock ${CFG[VENV_DIR]}/bin/python $P/nn_server.py" >&3
+        return 0
+    fi
+    ND_SCRIPT="${CFG[NERD_DIR]}/nerd-dictation" ND_BEGIN_ARGS="$begin" \
+    NN_STATE_DIR="$STATE_DIR" NN_SOCKET="$STATE_DIR/control.sock" NN_LIVE="${CFG[NN_LIVE]}" \
+    NN_BEEP_LEAD="${CFG[BEEP_LEAD]}" NN_TMP="$STATE_DIR/patched" ND_COOKIE="$STATE_DIR/nd.cookie" \
+        setsid nohup "${CFG[VENV_DIR]}/bin/python" "$P/nn_server.py" >>"$STATE_DIR/server.log" 2>&1 </dev/null &
+    echo $! > "$STATE_DIR/server.pid"
+}
+
+container() {
+    check
+    if [ "$MODE" = docker ]; then container_docker "${1:-}"; else container_venv; fi
+}
+
+stop_server() {
+    if [ "$MODE" = docker ]; then
+        run docker rm -f "${CFG[CONTAINER_NAME]}" >/dev/null 2>&1
+        return 0
+    fi
+    local pid; pid="$(server_pid)" || return 0
+    [ -n "${NN_DRYRUN:-}" ] && { echo "kill $pid" >&3; return 0; }
+    kill "$pid" 2>/dev/null
+    for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+    kill -9 "$pid" 2>/dev/null
+    rm -f "$STATE_DIR/server.pid"
+    return 0
+}
+
+stop_watcher() {
+    # exit status 0 when a watcher was running and has been stopped
+    if [ -n "${NN_DRYRUN:-}" ]; then echo "pkill -f '[n]n_watch.py'" >&3; return 0; fi
+    pkill -f '[n]n_watch.py'
+}
+
+watcher() {
+    stop_watcher; true
+    export NN_SOCKET="$STATE_DIR/control.sock" NN_KEYCODES="${CFG[NN_KEYCODES]}" NN_RELEASE_DELAY="${CFG[RELEASE_DELAY]}"
+    # shellcheck disable=SC2086
+    if [ -n "${NN_DRYRUN:-}" ]; then echo "python3 $P/nn_watch.py ${CFG[WATCH_ARGS]}" >&3; return 0; fi
+    setsid nohup python3 "$P/nn_watch.py" ${CFG[WATCH_ARGS]} >"$WATCH_LOG" 2>&1 </dev/null &
+}
+
+set_cfg() {   # set_cfg KEY VALUE: change one line of config.env, keep everything else
+    [ -n "${CFG[$1]+x}" ] || die "unknown setting: $1"
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    python3 - "$CONFIG_FILE" "$1" "$2" <<'PY'
+import os, sys
+path, key, val = sys.argv[1:4]
+lines = open(path).read().split("\n") if os.path.exists(path) else []
+out, done = [], False
+for line in lines:
+    if line.split("=", 1)[0].strip() == key and "=" in line and not line.lstrip().startswith("#"):
+        if not done:
+            out.append(f"{key}={val}")
+        done = True
+    else:
+        out.append(line)
+if not done:
+    while out and out[-1] == "":
+        out.pop()
+    out.append(f"{key}={val}")
+open(path, "w").write("\n".join(out).rstrip("\n") + "\n")
+PY
+}
+
+case "${1:-}" in
+    start)       container "${2:-}"; watcher ;;
+    container)   container "${2:-}" ;;
+    watcher)     watcher ;;
+    watch)       export NN_SOCKET="$STATE_DIR/control.sock" NN_KEYCODES="${CFG[NN_KEYCODES]}" NN_RELEASE_DELAY="${CFG[RELEASE_DELAY]}"
+                 # shellcheck disable=SC2086
+                 exec python3 "$P/nn_watch.py" ${CFG[WATCH_ARGS]} ;;
+    unwatch)     stop_watcher ;;
+    rules)       rf="${XDG_CONFIG_HOME:-$HOME/.config}/nerd-natter/user-rules.py"
+                 if [ ! -f "$rf" ]; then
+                     mkdir -p "$(dirname "$rf")"
+                     cat > "$rf" <<'RULES'
+# Your own typing rules for Nerd Natter. This file is kept when you update the project.
+# It runs inside nn-config.py, so you can change its lists directly. Restart the service
+# after editing. Lines starting with # do nothing; remove the # to use an example.
+
+# Fix a word Vosk keeps mishearing (heard words in lowercase):
+# FIXES["pseudo"] = "sudo"
+
+# A spoken phrase for a symbol in a terminal: (what you say, what is typed, how it joins).
+# How it joins: "both" sticks to the words on each side, "next" to the following word,
+# "prev" to the word before, "none" leaves spacing alone.
+# SHELL.append(("back tick", "`", "both"))
+
+# A terminal that is not recognised (find its class with: xdotool getactivewindow getwindowclassname)
+# TERMINALS.add("my-terminal")
+
+# Words to throw away when they are all you said:
+# DROP_ALONE.add("a")
+RULES
+                 fi
+                 echo "$rf" ;;
+    capture-key) exec python3 "$P/nn_watch.py" --capture-key ;;
+    stop)        stop_watcher; stop_server; true ;;
+    restart)     "$0" stop; "$0" start "${2:-}" ;;
+    build)       build ;;
+    setup-venv)  setup_venv ;;
+    logs)        if [ "${2:-}" = "watcher" ]; then touch "$WATCH_LOG"; exec tail -n 50 -f "$WATCH_LOG"; fi
+                 if [ "$MODE" = venv ]; then
+                     [ -f "$STATE_DIR/server.log" ] || die "no log yet (start the service first)"
+                     exec tail -n 100 -f "$STATE_DIR/server.log"
+                 fi
+                 docker container inspect "${CFG[CONTAINER_NAME]}" >/dev/null 2>&1 \
+                     || die "the container is not running (start the service first)"
+                 exec docker logs -f "${CFG[CONTAINER_NAME]}" ;;
+    test)        NN_SOCKET="$STATE_DIR/control.sock" python3 "$P/nn_watch.py" --send ping ;;
+    check)       check && echo "ok" ;;
+    status)
+        s=stopped
+        if [ "$MODE" = docker ]; then
+            docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "${CFG[CONTAINER_NAME]}" && s=running
+        else
+            server_pid >/dev/null && s=running
+        fi
+        w=stopped; pgrep -f '[n]n_watch.py' >/dev/null && w=running
+        echo "mode: $MODE"; echo "dictation server: $s"; echo "key watcher: $w" ;;
+    config)      echo "# config file: $CONFIG_FILE"; for k in $(printf '%s\n' "${!CFG[@]}" | sort); do echo "$k=${CFG[$k]}"; done ;;
+    get)         [ -n "${2:-}" ] && [ -n "${CFG[$2]+x}" ] || die "unknown setting: ${2:-}"; echo "${CFG[$2]}" ;;
+    set)         [ -n "${2:-}" ] || die "usage: nn-ctl set KEY VALUE"; set_cfg "$2" "${3:-}" ;;
+    version)     cat "$HERE/VERSION" 2>/dev/null || echo unknown ;;
+    sync-version) # make the applet's About dialog show the version in the VERSION file
+                 v="$(tr -d '[:space:]' < "$HERE/VERSION" 2>/dev/null)"; m="$P/applet/nn@nerd-natter/metadata.json"
+                 [ -n "$v" ] && [ -f "$m" ] && sed -i "s/\"version\": *\"[^\"]*\"/\"version\": \"$v\"/" "$m"
+                 echo "applet version: $v" ;;
+    *)           sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; [ -z "${1:-}" ] || exit 1 ;;
+esac

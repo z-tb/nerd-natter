@@ -1,0 +1,267 @@
+{
+    "layout": {
+        "type": "layout",
+        "pages": [
+            "general",
+            "service"
+        ],
+        "general": {
+            "type": "page",
+            "title": "Sounds and look",
+            "sections": [
+                "appearance",
+                "feedback"
+            ]
+        },
+        "feedback": {
+            "type": "section",
+            "title": "Sounds",
+            "keys": [
+                "sound-enabled",
+                "keep-awake",
+                "keep-mic-awake",
+                "sound-volume",
+                "sound-on",
+                "sound-off",
+                "sound-remind",
+                "sound-test",
+                "reminder-beep",
+                "reminder-seconds"
+            ]
+        },
+        "appearance": {
+            "type": "section",
+            "title": "Panel icon",
+            "keys": [
+                "icon-style",
+                "mode-indicator"
+            ]
+        },
+        "service": {
+            "type": "page",
+            "title": "Setup",
+            "sections": [
+                "paths",
+                "behavior"
+            ]
+        },
+        "paths": {
+            "type": "section",
+            "title": "Where things are",
+            "keys": [
+                "project-dir",
+                "nerd-dir",
+                "model-dir",
+                "nn-config"
+            ]
+        },
+        "behavior": {
+            "type": "section",
+            "title": "How dictation works",
+            "keys": [
+                "run-mode",
+                "nn-args",
+                "live-text",
+                "keycodes",
+                "capture-key",
+                "beep-lead-ms",
+                "release-delay-ms",
+                "autostart-service",
+                "apply-restart"
+            ]
+        }
+    },
+    "project-dir": {
+        "type": "filechooser",
+        "default": "",
+        "description": "Folder where Nerd Natter lives",
+        "tooltip": "This is the folder you unpacked or downloaded Nerd Natter into. You can recognise it because it contains files named nn-ctl and Dockerfile. If you set things up with 'make install', leave this empty and it is found for you. Fill it in only if you moved the folder afterwards.",
+        "select-dir": true
+    },
+    "sound-enabled": {
+        "type": "switch",
+        "default": true,
+        "description": "Play a sound when the microphone turns on or off",
+        "tooltip": "You hear a short rising pair of notes when the microphone starts listening and a falling pair when it stops, so you always know without looking."
+    },
+    "icon-style": {
+        "type": "combobox",
+        "default": "logo",
+        "description": "Panel icon style",
+        "tooltip": "Choose how the icon looks in your panel. The logo is grey when you are not talking and turns to colour while the microphone is listening. The plain microphone matches your panel theme.",
+        "options": {
+            "Logo (grey when idle, colour when dictating)": "logo",
+            "Symbolic microphone (follows the panel theme)": "symbolic"
+        }
+    },
+    "mode-indicator": {
+        "type": "combobox",
+        "default": "bar",
+        "description": "Show how words will be typed",
+        "tooltip": "Nerd Natter types normal sentences in most windows, but turns spoken words like 'slash' and 'pipe' into symbols in a terminal. This shows which of the two you will get right now, so you are not surprised. Blue means normal text. Green means terminal commands. Purple means you switched to command mode by voice, and grey means you switched to text mode by voice. Say 'automatic mode' to go back to following the window.",
+        "options": {
+            "A coloured line on top of the icon": "bar",
+            "A coloured glow around the icon": "glow",
+            "Off": "off"
+        }
+    },
+    "reminder-beep": {
+        "type": "switch",
+        "default": false,
+        "description": "Remind me that the microphone is still on in hands-free mode",
+        "tooltip": "In hands-free mode nothing is held down, so it is easy to forget the microphone is listening. Turn this on to hear a soft tick every so often while it is. It does nothing when you hold the key to talk."
+    },
+    "reminder-seconds": {
+        "type": "spinbutton",
+        "default": 15,
+        "min": 5,
+        "max": 120,
+        "step": 5,
+        "units": "seconds",
+        "description": "Seconds between reminders",
+        "dependency": "reminder-beep",
+        "tooltip": "How often the reminder tick plays while hands-free dictation is on."
+    },
+    "sound-volume": {
+        "type": "scale",
+        "default": 50,
+        "min": 5,
+        "max": 100,
+        "step": 5,
+        "show-value": true,
+        "description": "Sound volume",
+        "dependency": "sound-enabled",
+        "tooltip": "How loud these sounds are. It stays the same however you set your computer's main volume. A sample plays when you let go of the slider."
+    },
+    "sound-on": {
+        "type": "filechooser",
+        "default": "",
+        "select-dir": false,
+        "description": "Sound for microphone on",
+        "dependency": "sound-enabled",
+        "tooltip": "Pick your own sound file to play when the microphone starts listening. Leave this empty to use the built-in sound. Keep it short, under a third of a second, or the microphone may hear it."
+    },
+    "sound-off": {
+        "type": "filechooser",
+        "default": "",
+        "select-dir": false,
+        "description": "Sound for microphone off",
+        "dependency": "sound-enabled",
+        "tooltip": "Pick your own sound file to play when the microphone stops. Leave this empty to use the built-in sound."
+    },
+    "sound-remind": {
+        "type": "filechooser",
+        "default": "",
+        "select-dir": false,
+        "description": "Sound for the reminder",
+        "dependency": "sound-enabled",
+        "tooltip": "Pick your own sound file for the reminder tick. Leave this empty to use the built-in sound."
+    },
+    "sound-test": {
+        "type": "button",
+        "description": "Hear the sounds",
+        "callback": "_testSounds",
+        "tooltip": "Plays the on and off sounds one after the other, so you can check the volume and your choices."
+    },
+    "model-dir": {
+        "type": "filechooser",
+        "default": "",
+        "select-dir": true,
+        "description": "Speech model folder",
+        "tooltip": "The speech model is the large set of files that lets your computer understand your voice. Choose the folder that holds it, the one with folders named am, conf and graph inside. If this is empty, the folder ~/.local/share/vosk-models/vosk-model-en-us-0.22 is used. If the model is on an external drive, make sure the drive is connected before you start."
+    },
+    "nn-config": {
+        "type": "filechooser",
+        "default": "",
+        "select-dir": false,
+        "description": "Typing rules file (nn-config.py)",
+        "tooltip": "This small file decides how your words are typed, for example turning the spoken word 'comma' into a comma, and using symbols like a slash when you are in a terminal. Leave this empty to use the one that came with Nerd Natter, or choose your own copy."
+    },
+    "nn-args": {
+        "type": "entry",
+        "default": "--numbers-as-digits --config /home/appuser/nn-config.py",
+        "description": "Extra dictation options",
+        "tooltip": "Advanced. These are extra options given to the dictation program when it starts. The default turns spoken numbers into digits and loads the typing rules above. If you are not sure, leave it as it is."
+    },
+    "live-text": {
+        "type": "switch",
+        "default": false,
+        "description": "Show words as I speak",
+        "tooltip": "Off (recommended): your words appear in one go when you finish a sentence, which keeps the screen steady. On: words appear while you are still talking, but the text can flicker as the computer changes its mind."
+    },
+    "keycodes": {
+        "type": "entry",
+        "default": "135",
+        "description": "Nerd Natter key",
+        "tooltip": "The number that identifies the key you hold to talk. 135 is the Menu key, the one next to the right Ctrl on many keyboards. You do not need to know the numbers: press the Choose key button below and tap the key you want."
+    },
+    "autostart-service": {
+        "type": "switch",
+        "default": false,
+        "description": "Start dictation automatically when I log in",
+        "tooltip": "When this is on, the applet starts the dictation service for you a few seconds after you log in, if it is not already running. You will not need to start it by hand."
+    },
+    "apply-restart": {
+        "type": "button",
+        "description": "Apply changes now",
+        "callback": "_applyRestart",
+        "tooltip": "Your changes are saved as soon as you make them, but the dictation service only notices them when it restarts. Click here to restart it. Dictation pauses for a few seconds."
+    },
+    "capture-key": {
+        "type": "button",
+        "description": "Choose key",
+        "callback": "_captureKey",
+        "tooltip": "Click this, then press the key you want to talk with. Its number is filled in for you. Press Escape to cancel. Avoid keys like Shift, Ctrl and Alt, they are used in too many shortcuts."
+    },
+    "beep-lead-ms": {
+        "type": "spinbutton",
+        "default": 350,
+        "min": 0,
+        "max": 1000,
+        "step": 50,
+        "units": "milliseconds",
+        "description": "Wait after pressing before listening starts",
+        "tooltip": "When you press the key you hear a short sound, and the microphone opens this long afterwards so it does not record the sound itself. Anything you say before the microphone opens is lost, so wait for the sound before you speak, or lower this number. If it is too low, the sound may be typed as a stray word such as 'the'. Zero means no wait."
+    },
+    "release-delay-ms": {
+        "type": "spinbutton",
+        "default": 300,
+        "min": 50,
+        "max": 1000,
+        "step": 50,
+        "units": "milliseconds",
+        "description": "Keep listening after the key is released",
+        "tooltip": "How long the microphone stays on after you let go, so your last word is not cut off. Lower it for a quicker finish, raise it if the end of your sentences goes missing."
+    },
+    "keep-awake": {
+        "type": "switch",
+        "default": false,
+        "description": "Keep the sound device awake",
+        "dependency": "sound-enabled",
+        "tooltip": "If the start sound is missing or cut short when you have not used push-to-talk for a few seconds, your sound card is asleep and needs a moment to wake up. That wake-up can also click, and the microphone may type it as a stray word. Turn this on to play endless silence in the background so the sound card never sleeps. It uses a little extra power, and a Bluetooth headset may drain slightly faster."
+    },
+    "keep-mic-awake": {
+        "type": "switch",
+        "default": false,
+        "description": "Also keep the microphone awake",
+        "dependency": "keep-awake",
+        "tooltip": "A microphone, especially a Bluetooth headset, goes to sleep when nothing is recording and takes a moment to wake up, so the first words you say after a pause can be lost. This listens to the microphone in the background and throws the sound away, so it is ready when you press the key. Other programs are not affected. Your desktop may show the microphone as in use all the time."
+    },
+    "nerd-dir": {
+        "type": "filechooser",
+        "default": "",
+        "select-dir": true,
+        "description": "nerd-dictation folder",
+        "tooltip": "nerd-dictation is the free program that turns your speech into typing. This is the folder that holds it, the one with a file called nerd-dictation inside. If you already downloaded it somewhere, choose that folder and it will not be downloaded again."
+    },
+    "run-mode": {
+        "type": "combobox",
+        "default": "docker",
+        "description": "How dictation runs",
+        "options": {
+            "In Docker (nothing is installed on your system)": "docker",
+            "In a Python virtual environment (no Docker needed)": "venv"
+        },
+        "tooltip": "Docker keeps everything in a sealed container. The Python option keeps it in a private folder instead, and does not need Docker. Both work the same once running. Changing this needs a restart of the service, and the Python option needs the setup step from install.sh."
+    }
+}

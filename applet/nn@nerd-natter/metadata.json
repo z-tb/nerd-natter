@@ -1,0 +1,9 @@
+{
+    "uuid": "nn@nerd-natter",
+    "name": "Nerd Natter",
+    "description": "Push-to-talk dictation. Shows when the microphone is on, beeps when it turns on or off, and switches hands-free mode.",
+    "version": "0.1.0",
+    "author": "nerd-natter",
+    "max-instances": "1",
+    "icon": "nerd-natter"
+}
