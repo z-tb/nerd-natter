@@ -1,18 +1,28 @@
 # Nerd Natter
 
-Push-to-talk dictation for Linux. Hold a key, talk, and your words are typed wherever your
-cursor is: a terminal, a browser, an editor, anything. Let go and it stops listening, so your
-microphone stays free for everything else.
+This is a Push-to-talk Cinnamon desktop applet that works with the voice-to-text nerd-dication project. Hold a key down to talk, and words are typed wherever your
+cursor is: a terminal, a browser, an editor, anything. Let go and it stops listening, so your microphone stays free for everything else like Zoom or whatever.
 
-Nerd Natter is a friendly wrapper around two free programs:
+Since it's involved with running commands on my system, I prefer to run in in a docker container with no network access. This gives better control over isolation, especially if the same system running ND is also running AI models or other AI enabled applications. Obviosly, you'll need docker installed to use this feature. 
+
+Speaking of AI, this project started out as a collection of shell scripts and a Makefile. These worked well but when I started thinking about a push-to-talk feature, the cinnamon applet made a lot more sense. I loaded up the Makefile, shell scripts and source code into claude, and over the course of a couple of weekends, had a pretty functional cinnamon applet that I use pretty much daily now. I'm still working out better shell capability since the symbols and other cli incantations require literal characters and not the spoken words. I'm mentioning this because i think it's responsible disclosure. I do my best to review generated code, but clankers sometimes implement things in ridiculous ways in unexpected places.
+
+Nerd Natter is a wrapper around two free programs:
 
 - [nerd-dictation](https://github.com/ideasman42/nerd-dictation) does the typing.
 - [Vosk](https://alphacephei.com/vosk) understands your voice. It runs entirely on your own
   computer, and nothing is sent anywhere.
 
-On top of them it adds the push-to-talk key, a panel icon for the Cinnamon desktop, start and
-stop sounds, a hands-free mode, and typing rules that make dictating shell commands work.
+On top of them it adds the push-to-talk key (default is the "Menu" key betwen the right ALT and CTRL keys), a panel icon for the Cinnamon desktop, start and
+stop sounds, a hands-free mode (toggle), and typing rules that make dictating shell commands work.
 (Nerd Natter is an independent project and is not part of nerd-dictation.)
+
+### About
+![about](images/about.png)
+
+### Context menu
+![context menu](images/context.png)
+
 
 
 ## What you need
@@ -27,14 +37,15 @@ stop sounds, a hands-free mode, and typing rules that make dictating shell comma
 - A speech model, which is the set of files that lets the computer understand you. The small
   English one is about 40 MB. The large one is about 1.8 GB and much more accurate.
 - Either Docker, or nothing extra: dictation can run in a Python virtual environment instead
-  (a private folder, about 100 MB).
+  (a private folder, about 100 MB). I'm running the docker implementation pretty much daily and relying on
+  unit tests to catch any of the python stuff. The venv is untested as of yet. I added it because some may not want to go through the docker hassle.
 
 
 ## Quick start
 
 1. Get the project and open a terminal in it:
 
-       git clone <this-repository-url> nerd-natter
+       git clone https://github.com/z-tb/nerd-natter
        cd nerd-natter
 
 2. Run the guided installer:
@@ -91,17 +102,17 @@ installer again.
 
 ## Using it
 
-**Hold mode** (the normal way): hold the key, talk, let go.
+**PTT mode** (the normal way): hold the key, talk, let go.
 
-**Hands-free mode:** left-click the panel icon. The key becomes a switch: press once to start
-dictating, press again to stop. Click the icon again to go back to hold mode.
+**Hands-free mode:** left-click the panel icon. The key becomes a mode toggle: press once to start
+dictating, press again to stop. Click the icon again to go back to PTT mode.
 
 **The panel icon** always shows what is happening. Grey means idle. Colour means the
 microphone is on. An amber dot means hands-free is ready, a red dot means you are dictating
 hands-free. A dimmed, slashed icon means the service is not running.
 
-**Typing mode:** a thin coloured line on top of the icon shows how your words will be typed in the
-window you are in right now. Blue is normal text, green is terminal commands (so "slash" types
+**Typing mode:** a thin coloured line on top of the icon shows how your words will be interpreted.
+Blue is normal text, green is terminal commands (so "slash" types
 `/`). Purple means you switched to command mode by voice, and grey means you switched to text
 mode by voice. Hover over the icon for a description. In Configure (Sounds and look) you can
 change it to a glow, or turn it off. If you see no line, the service may not be running, or
@@ -113,7 +124,7 @@ opens a moment after it. You can change that wait, the volume (it does not follo
 volume), and the sounds themselves in Configure.
 
 **Right-click the icon** for Hands-free mode, a reminder tick, Start, Stop and Restart
-service, Rebuild image and restart, the service and key watcher logs, Edit my own rules, Edit nn-config.py, and
+service, Rebuild image and restart, the service and key watcher logs, Help and website, Edit my own rules, Edit nn-config.py, and
 Cinnamon's own About, Configure and Remove.
 
 
@@ -132,10 +143,10 @@ seconds). The folder fields show what is really in use.
   how long to keep listening after you let go, and whether to start at login.
 
 **Sounds and look page:** sound on or off, volume, your own sounds, the reminder tick, the
-"keep the sound device awake" switches, and the panel icon style.
+"keep the sound device awake" switches, and the panel icon style. The activation and deactivation sounds need to be tiny for performance.
 
 Pick a normal key, not Shift, Ctrl, Alt or Super. Those are used in too many shortcuts, and
-the chooser refuses them.
+the chooser refuses them. The default "Menu" key (135) has some of the same the problems in that a lot of applications expect it to be working but i never use it and it's a handy place for a activation key so... I'm stubborn.
 
 
 ## If it feels slow or misses your first words
@@ -258,6 +269,7 @@ The Makefile wraps the same things:
     make run         start dictation
     make stop        stop dictation
     make uninstall   remove the applet, icons and menu entries (settings are kept)
+    make test        run the tests (no Docker, microphone or desktop needed)
 
 `make status` and `make logs` also work, and plain `make` lists them.
 

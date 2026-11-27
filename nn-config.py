@@ -126,7 +126,7 @@ COMPOUNDS = [
 SEPARATORS = {"pipe", "ampersand", "semicolon", "sudo", "time", "xargs", "watch", "nohup", "env"}
 
 
-_class_cache = {"at": 0.0, "value": ""}
+_class_cache = {"at": 0.0, "value": "", "warned": False}
 
 
 def active_class():
@@ -140,8 +140,16 @@ def active_class():
             capture_output=True, text=True, timeout=1,
         )
         value = out.stdout.strip().lower()
-    except Exception:
+        if not value and not _class_cache["warned"]:
+            _class_cache["warned"] = True
+            log("could not read the focused window (xdotool said: %s). Terminals cannot be "
+                "recognised until this works. Say \"command mode\" to switch by hand."
+                % ((out.stderr or "nothing").strip().splitlines() or ["nothing"])[0])
+    except Exception as e:
         value = ""
+        if not _class_cache["warned"]:
+            _class_cache["warned"] = True
+            log("could not run xdotool to read the focused window: %s" % e)
     _class_cache.update(at=now, value=value)
     return value
 
@@ -194,7 +202,8 @@ def current_mode():
     key = (cls, mode, _forced)
     if key != _logged["key"]:
         _logged["key"] = key
-        why = "chosen by voice" if _forced else ("terminal window" if mode == "shell" else "not a known terminal")
+        why = ("chosen by voice" if _forced else "terminal window" if mode == "shell"
+               else "not a known terminal" if cls else "focused window unknown")
         log('window class "%s": %s mode (%s)' % (cls, "command" if mode == "shell" else "text", why))
     return mode
 
