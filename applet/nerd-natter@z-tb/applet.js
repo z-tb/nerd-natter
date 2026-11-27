@@ -48,6 +48,8 @@ class NnApplet extends Applet.IconApplet {
         this.keepAwakeProc = null;
         this.keepMicProc = null;
         this.autostartId = 0;
+        this.modelLoading = false;  // the speech model is still loading (server says so)
+        this.pulseId = 0;           // timer that pulses the icon while it loads
         this.typing = null;       // {mode: 'command'|'text', by: 'auto'|'voice'} for the focused window
         this.modeId = 0;          // debounce timer for looking up the typing mode
         this.focusSignal = 0;
@@ -113,6 +115,7 @@ class NnApplet extends Applet.IconApplet {
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._addItem('View service log', () => this._logs());
         this._addItem('View key watcher log', () => this._logs('watcher'));
+        this._addItem('Help and website', () => Util.spawn(['python3', this.metadata.path + '/about.py']));
         this._addItem('Edit my own rules (kept when updating)', () => this._editRules());
         this._addItem('Edit nn-config.py', () => this._editConfig());
         // Cinnamon adds About, Configure and Remove itself, from metadata.json
@@ -489,6 +492,7 @@ class NnApplet extends Applet.IconApplet {
         this._closeConn();
         this.synced = false;
         this.handsfree = false;
+        this.modelLoading = false;
         this._setState('offline');
         if (this.destroyed || this.retryId)
             return;
@@ -540,6 +544,11 @@ class NnApplet extends Applet.IconApplet {
     // --- state ------------------------------------------------------------------
     _onLine(line) {
         let parts = line.trim().split(/\s+/);
+        if (parts[0] === 'model') {
+            this.modelLoading = parts[1] === 'loading';
+            this._updateUi();
+            return;
+        }
         if (parts[0] === 'loading') {
             Main.notify('Nerd Natter', 'The speech model is still loading. Try again in a few seconds.');
             return;
@@ -577,6 +586,26 @@ class NnApplet extends Applet.IconApplet {
         // a voice switch ("command mode") is spoken while dictating, so look again when it ends
         if (state === 'idle' || prev === 'offline')
             this._queueModeRefresh();
+    }
+
+    // Gentle fade in and out while the model loads, so it looks busy and not broken
+    _pulse(on) {
+        if (!on) {
+            if (this.pulseId) {
+                Mainloop.source_remove(this.pulseId);
+                this.pulseId = 0;
+            }
+            this.actor.opacity = 255;
+            return;
+        }
+        if (this.pulseId)
+            return;
+        let dim = false;
+        this.pulseId = Mainloop.timeout_add(600, () => {
+            dim = !dim;
+            this.actor.opacity = dim ? 110 : 255;
+            return true;
+        });
     }
 
     // --- typing mode (normal text or terminal commands) -------------------------------
@@ -624,7 +653,7 @@ class NnApplet extends Applet.IconApplet {
     }
 
     // While dictating hands-free there is no held key to remind you the mic is hot, so
-    // optionally play a soft tick every N seconds (default 15). Not in hold mode.
+    // optionally play a soft tick every N seconds (default 15). Not in PTT mode.
     _onReminderChanged() {
         this.remindItem.setToggleState(!!this.reminderBeep);
         this._updateReminder();
@@ -759,6 +788,9 @@ class NnApplet extends Applet.IconApplet {
         if (this.state === 'offline') {
             key = 'offline'; color = '';
             tip = 'Nerd Natter: service not running';
+        } else if (this.modelLoading && this.state !== 'active') {
+            key = 'loading'; color = '';
+            tip = 'Nerd Natter: loading the speech model, one moment...';
         } else if (this.state === 'active') {
             key = hf ? 'active-hf' : 'active'; color = COLOR_ACTIVE;
             tip = hf ? 'Nerd Natter: dictating hands-free, press the key to stop'
@@ -789,6 +821,7 @@ class NnApplet extends Applet.IconApplet {
                    (this.typing.by === 'voice' ? ' (you chose this by voice; say "automatic mode" to undo)' : '');
         }
         this.actor.set_style(shade);
+        this._pulse(key === 'loading');
         this.set_applet_tooltip(tip);
         this.hfItem.setToggleState(hf);
     }
@@ -810,7 +843,7 @@ class NnApplet extends Applet.IconApplet {
             global.display.disconnect(this.focusSignal);
             this.focusSignal = 0;
         }
-        for (let id of ['volumeId', 'configId', 'autostartId', 'syncId', 'modeId']) {
+        for (let id of ['volumeId', 'configId', 'autostartId', 'syncId', 'modeId', 'pulseId']) {
             if (this[id]) {
                 Mainloop.source_remove(this[id]);
                 this[id] = 0;

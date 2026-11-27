@@ -98,6 +98,7 @@ if [ -z "$MODE" ]; then
     if interactive; then
         say "  1) In Docker. Everything stays in a sealed container. Needs Docker installed."
         say "  2) In a Python virtual environment. A private folder, no Docker needed. Lighter."
+        say "     (Note: this option is not well tested yet. Docker is the one in daily use.)"
         [ "$docker_ok" = 1 ] && say "     (Docker is installed and working on this computer.)" || say "     (Docker is not set up here yet, so option 2 is the easy one.)"
         read -r -p "Choose 1 or 2 [$([ "$default" = docker ] && echo 1 || echo 2)]: " a
         case "${a:-}" in 1) MODE=docker ;; 2) MODE=venv ;; *) MODE="$default" ;; esac
@@ -107,6 +108,7 @@ if [ -z "$MODE" ]; then
     fi
 fi
 say "Dictation will run in: $([ "$MODE" = docker ] && echo Docker || echo "a Python virtual environment")"
+[ "$MODE" = venv ] && warn "The Python virtual environment option is untested as of yet. If something goes wrong, please report it, or use Docker."
 
 # ---------------------------------------------------------------- 3. system packages
 step "Checking for programs this needs"
@@ -291,10 +293,10 @@ if [ "$APPLET" = 1 ]; then
     mkdir -p "$HOME/.local/share/icons/hicolor" "$HOME/.local/share/cinnamon/applets" "$HOME/.config/nerd-natter"
     cp -r "$HERE/icons/hicolor/." "$HOME/.local/share/icons/hicolor/"
     have gtk-update-icon-cache && gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" >/dev/null 2>&1
-    rm -f "$HOME/.local/share/cinnamon/applets/ptt@nerd-dictation" "$HOME/.local/share/applications/nerd-dictation-ptt.desktop" \
+    rm -f "$HOME/.local/share/cinnamon/applets/ptt@nerd-dictation" "$HOME/.local/share/cinnamon/applets/nn@nerd-natter" "$HOME/.local/share/applications/nerd-dictation-ptt.desktop" \
         "$HOME/.config/autostart/nerd-dictation-ptt.desktop"   # names from before the rename
     find "$HOME/.local/share/icons/hicolor" -name 'nerd-dictation-ptt.*' -delete 2>/dev/null
-    ln -sfn "$HERE/applet/nn@nerd-natter" "$HOME/.local/share/cinnamon/applets/nn@nerd-natter"
+    ln -sfn "$HERE/applet/nerd-natter@z-tb" "$HOME/.local/share/cinnamon/applets/nerd-natter@z-tb"
     printf '%s\n' "$HERE" > "$HOME/.config/nerd-natter/project-dir"
     mkdir -p "$HOME/.local/share/applications"
     printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Nerd Natter' \

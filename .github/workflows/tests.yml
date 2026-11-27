@@ -1,0 +1,12 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get the nerd-dictation version the patches were written for
+        run: |
+          mkdir nd && curl -fsSL https://github.com/ideasman42/nerd-dictation/archive/41f372789c640e01bb6650339a78312661530843.tar.gz | tar xz -C nd --strip-components=1
+      - name: Run the tests
+        run: NN_TEST_ND=$PWD/nd/nerd-dictation make test

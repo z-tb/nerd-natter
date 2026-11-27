@@ -7,22 +7,23 @@
 #   make run         start dictation (the service and the key watcher)
 #   make stop        stop dictation
 #   make uninstall   remove the applet, icons, menu entry and autostart entry
+#   make test        run the tests (no Docker, microphone or desktop needed)
 #
 # First time? ./install.sh asks questions and sets everything up for you.
 
 CTL = $(CURDIR)/nn-ctl
-APPLET_UUID = nn@nerd-natter
+APPLET_UUID = nerd-natter@z-tb
 APPLET_DIR  = $(HOME)/.local/share/cinnamon/applets
 ICON_DIR    = $(HOME)/.local/share/icons/hicolor
 LAUNCHER    = $(HOME)/.local/share/applications/nerd-natter.desktop
 AUTOSTART   = $(HOME)/.config/autostart/nerd-natter.desktop
 CONF_DIR    = $(HOME)/.config/nerd-natter
 # Names used before the project was called Nerd Natter (removed on install and uninstall)
-OLD = $(APPLET_DIR)/ptt@nerd-dictation $(HOME)/.local/share/applications/nerd-dictation-ptt.desktop \
+OLD = $(APPLET_DIR)/ptt@nerd-dictation $(APPLET_DIR)/nn@nerd-natter $(HOME)/.local/share/applications/nerd-dictation-ptt.desktop \
       $(HOME)/.config/autostart/nerd-dictation-ptt.desktop
 
 .DEFAULT_GOAL := help
-.PHONY: help build install run stop uninstall status logs
+.PHONY: help build install run stop uninstall status logs test
 
 help:
 	@sed -n 's/^#   make /  make /p' $(firstword $(MAKEFILE_LIST))
@@ -80,3 +81,6 @@ status:
 
 logs:
 	@$(CTL) logs
+
+test:
+	@python3 -m unittest discover -s tests -v

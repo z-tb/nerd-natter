@@ -233,20 +233,41 @@ case "${1:-}" in
 # Your own typing rules for Nerd Natter. This file is kept when you update the project.
 # It runs inside nn-config.py, so you can change its lists directly. Restart the service
 # after editing. Lines starting with # do nothing; remove the # to use an example.
+# Careful: change the lists with .update, .append or .add as shown. Writing FIXES = {...}
+# would throw away the built-in list.
 
-# Fix a word Vosk keeps mishearing (heard words in lowercase):
+# --- Fix words Vosk mishears (what it heard in lowercase -> what to type) ---
+# One word:
 # FIXES["pseudo"] = "sudo"
+# Several at once:
+# FIXES.update({
+#     "pseudo": "sudo",
+#     "hell": "hal",
+# })
 
-# A spoken phrase for a symbol in a terminal: (what you say, what is typed, how it joins).
+# --- Spoken symbols for a terminal: (what you say, what is typed, how it joins) ---
 # How it joins: "both" sticks to the words on each side, "next" to the following word,
 # "prev" to the word before, "none" leaves spacing alone.
+# One symbol:
 # SHELL.append(("back tick", "`", "both"))
+# Several at once:
+# SHELL.extend([
+#     ("back tick", "`", "both"),
+#     ("caret", "^", "both"),
+# ])
 
-# A terminal that is not recognised (find its class with: xdotool getactivewindow getwindowclassname)
+# --- Terminals that are not recognised ---
+# (find the class with: xdotool getactivewindow getwindowclassname, in lowercase)
+# One:
 # TERMINALS.add("my-terminal")
+# Several at once:
+# TERMINALS.update({"my-terminal", "other-terminal"})
 
-# Words to throw away when they are all you said:
+# --- Words to throw away when they are all you said ---
+# One:
 # DROP_ALONE.add("a")
+# Several at once:
+# DROP_ALONE.update({"a", "um"})
 RULES
                  fi
                  echo "$rf" ;;
@@ -264,7 +285,15 @@ RULES
                      || die "the container is not running (start the service first)"
                  exec docker logs -f "${CFG[CONTAINER_NAME]}" ;;
     test)        NN_SOCKET="$STATE_DIR/control.sock" python3 "$P/nn_watch.py" --send ping ;;
-    check)       check && echo "ok" ;;
+    check)       check && echo "ok"
+                 rf="${XDG_CONFIG_HOME:-$HOME/.config}/nerd-natter/user-rules.py"
+                 if [ -f "$rf" ]; then
+                     msg="$(python3 "$P/nn-config.py" --mode x 2>&1 >/dev/null | grep "^\[nn-config\]" | head -1)"
+                     case "$msg" in
+                         *"could not use"*) echo "Your own rules file has a problem: $msg" ;;
+                         *) echo "Your own rules file loads fine: $rf (restart the service after editing it)" ;;
+                     esac
+                 fi ;;
     status)
         s=stopped
         if [ "$MODE" = docker ]; then
@@ -277,9 +306,31 @@ RULES
     config)      echo "# config file: $CONFIG_FILE"; for k in $(printf '%s\n' "${!CFG[@]}" | sort); do echo "$k=${CFG[$k]}"; done ;;
     get)         [ -n "${2:-}" ] && [ -n "${CFG[$2]+x}" ] || die "unknown setting: ${2:-}"; echo "${CFG[$2]}" ;;
     set)         [ -n "${2:-}" ] || die "usage: nn-ctl set KEY VALUE"; set_cfg "$2" "${3:-}" ;;
+    detect)      # check that the focused window can be read, here and inside the container
+                 echo "Click the terminal window you want to test. Checking in ${2:-4} seconds..."
+                 sleep "${2:-4}"
+                 if ! command -v xdotool >/dev/null 2>&1; then
+                     echo "On this computer: xdotool is NOT installed (try: sudo apt install xdotool)"
+                 else
+                     cls="$(xdotool getactivewindow getwindowclassname 2>&1)"
+                     echo "On this computer: window class is \"$cls\""
+                     echo "  typing mode for it: $(python3 "$P/nn-config.py" --mode "$(echo "$cls" | tr 'A-Z' 'a-z')" 2>/dev/null || echo unknown)"
+                 fi
+                 if [ "$MODE" = docker ]; then
+                     if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "${CFG[CONTAINER_NAME]}"; then
+                         d="${CFG[CONTAINER_NAME]}"
+                         docker exec "$d" sh -c 'command -v xdotool >/dev/null' \
+                             || echo "In the container: xdotool is NOT installed (rebuild the image: nn-ctl build)"
+                         echo "In the container: DISPLAY=$(docker exec "$d" sh -c 'echo $DISPLAY')"
+                         echo "In the container: window class is \"$(docker exec "$d" xdotool getactivewindow getwindowclassname 2>&1)\""
+                         echo "(Both lines should show the same class. If the container line is an error, that is why terminals are not recognised.)"
+                     else
+                         echo "The container is not running, so only this computer was checked. Start the service and run this again."
+                     fi
+                 fi ;;
     version)     cat "$HERE/VERSION" 2>/dev/null || echo unknown ;;
     sync-version) # make the applet's About dialog show the version in the VERSION file
-                 v="$(tr -d '[:space:]' < "$HERE/VERSION" 2>/dev/null)"; m="$P/applet/nn@nerd-natter/metadata.json"
+                 v="$(tr -d '[:space:]' < "$HERE/VERSION" 2>/dev/null)"; m="$P/applet/nerd-natter@z-tb/metadata.json"
                  [ -n "$v" ] && [ -f "$m" ] && sed -i "s/\"version\": *\"[^\"]*\"/\"version\": \"$v\"/" "$m"
                  echo "applet version: $v" ;;
     *)           sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; [ -z "${1:-}" ] || exit 1 ;;

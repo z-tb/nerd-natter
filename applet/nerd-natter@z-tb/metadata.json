@@ -1,0 +1,9 @@
+{
+    "uuid": "nerd-natter@z-tb",
+    "name": "Nerd Natter",
+    "description": "Push-to-talk dictation for Linux, powered by nerd-dictation and Vosk. Runs locally, with a hands-free mode and configurable rules for the shell.\nhttps://github.com/z-tb/nerd-natter",
+    "version": "0.2.0",
+    "author": "z-tb",
+    "max-instances": "1",
+    "icon": "nerd-natter"
+}

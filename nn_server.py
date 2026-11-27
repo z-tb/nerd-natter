@@ -5,7 +5,7 @@ Listens on a TCP port (published to 127.0.0.1 only on the host). One command
 per connection, except `watch`, which stays open and streams state changes.
 
 Commands:
-  down / up        key press / release, as sent by nn_watch.py. Hold mode:
+  down / up        key press / release, as sent by nn_watch.py. PTT mode:
                    down starts dictation, up stops it. Hands-free mode:
                    down toggles dictation, up is ignored.
   on / off         explicit start / stop, whatever the mode
@@ -239,10 +239,31 @@ class Controller:
         self.watchdog = None
         self.subs = set()
         self.subs_lock = threading.Lock()
+        self.model_ready = MODE != "suspend"   # False until the speech model has loaded
 
     # --- state broadcast ---------------------------------------------------
     def state_line(self):
         return f"state {'active' if self.active else 'idle'} {1 if self.handsfree else 0}"
+
+    def model_line(self):
+        return f"model {'ready' if self.model_ready else 'loading'}"
+
+    def watch_model(self):
+        """Tell watchers when the speech model finishes loading (the panel icon shows a busy sign)."""
+        while not self.stopping:
+            try:
+                pid = self.nd_pid()
+                ready = proc_state(pid) == "T" or has_parec(pid)
+            except RuntimeError:
+                ready = False
+            if ready != self.model_ready:
+                with self.subs_lock:
+                    self.model_ready = ready
+                    line = self.model_line()
+                    for q in self.subs:
+                        q.put(line)
+                log(f"speech model {'ready' if ready else 'loading'}")
+            time.sleep(0.3)
 
     def announce_start(self):
         """Tell watchers the mic is about to open, and give their beep time to finish.
@@ -265,6 +286,7 @@ class Controller:
     def subscribe(self, q):
         with self.subs_lock:
             q.put(self.state_line())
+            q.put(self.model_line())
             self.subs.add(q)
 
     def unsubscribe(self, q):
@@ -515,6 +537,7 @@ def main():
 
     if MODE == "suspend":
         threading.Thread(target=ctl.supervise, daemon=True).start()
+        threading.Thread(target=ctl.watch_model, daemon=True).start()
     log(f"listening on {SOCKET}, mode={MODE}, partial results {'typed live' if LIVE else 'not typed'}")
     try:
         server.serve_forever()
